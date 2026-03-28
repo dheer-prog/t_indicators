@@ -1,0 +1,130 @@
+# =========================
+
+# Python
+
+# =========================
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# Installer logs
+
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+pytest_cache/
+
+# Jupyter Notebook
+
+.ipynb_checkpoints/
+
+# =========================
+
+# pybind11 / C++ builds
+
+# =========================
+
+# CMake
+
+build*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+Makefile
+
+# Ninja
+
+.ninja_log
+.ninja_deps
+
+# Compiled objects
+
+*.o
+*.obj
+*.so
+*.pyd
+*.dll
+*.dylib
+*.a
+*.lib
+
+# Debug / profiling
+
+*.dSYM/
+*.out
+*.gcno
+*.gcda
+*.gcov
+
+# =========================
+
+# Wheels / binaries
+
+# =========================
+
+*.whl
+
+# =========================
+
+# IDEs / Editors
+
+# =========================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =========================
+
+# OS files
+
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+
+# Logs
+
+# =========================
+
+*.log
+
+# =========================
+
+# Misc
+
+# =========================
+
+*.tmp
+*.bak
+*.orig
