@@ -1,0 +1,140 @@
+# 📈 Technical Indicators
+
+A Python library for calculating technical indicators on time series data — optimized for stock market data sourced from [yfinance](https://github.com/ranaroussi/yfinance).
+
+---
+
+## Features
+
+- Calculate a wide range of technical indicators (moving averages, oscillators, momentum, volatility, and more)
+- Seamlessly integrates with `yfinance` OHLCV data
+- Built on top of `pandas` and `numpy` for fast, vectorized computation
+- Clean, intuitive API
+
+---
+
+## Requirements
+
+- Python 3.8+
+- `pandas`
+- `numpy`
+- `yfinance`
+
+---
+
+## Setup & Installation
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/your-username/technical-indicators.git
+cd technical-indicators
+```
+
+### 2. (Recommended) Create a Virtual Environment
+```bash
+python -m venv venv
+source venv/bin/activate        # macOS/Linux
+venv\Scripts\activate           # Windows
+```
+
+### 3. Install via `setup.py`
+```bash
+python setup.py install
+```
+
+Or, for an editable/development install:
+```bash
+pip install -e .
+```
+
+### 4. Install Dependencies
+
+If dependencies aren't pulled in automatically:
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## Quick Start
+```python
+import yfinance as yf
+from technical_indicators import SMA, RSI, MACD
+
+# Download stock data
+df = yf.download("AAPL", start="2023-01-01", end="2024-01-01")
+
+# Calculate indicators
+df["SMA_20"]             = SMA(df["Close"], period=20)
+df["RSI_14"]             = RSI(df["Close"], period=14)
+df["MACD"], df["Signal"] = MACD(df["Close"])
+
+print(df[["Close", "SMA_20", "RSI_14", "MACD", "Signal"]].tail())
+```
+
+---
+
+## Project Structure
+```
+technical-indicators/
+├── technical_indicators/
+│   ├── __init__.py
+│   ├── trend.py          # SMA, EMA, DEMA, TEMA, ...
+│   ├── momentum.py       # RSI, MACD, Stochastic, ...
+│   ├── volatility.py     # Bollinger Bands, ATR, ...
+│   └── volume.py         # OBV, VWAP, ...
+├── tests/
+│   └── test_indicators.py
+├── requirements.txt
+├── setup.py
+└── README.md
+```
+
+---
+
+## Running Tests
+```bash
+python -m pytest tests/
+```
+
+---
+
+## 🚀 Upcoming
+
+### PyPI Release — `pip install technical-indicators`
+
+We are working on publishing this library to the [Python Package Index (PyPI)](https://pypi.org), which will allow installation without cloning the repository:
+```bash
+pip install technical-indicators
+```
+
+Once published, you will also be able to install a specific version:
+```bash
+pip install technical-indicators==1.0.0
+```
+
+**Planned release checklist:**
+- [ ] Finalize public API and versioning (`v1.0.0`)
+- [ ] Package and publish to PyPI via `twine`
+- [ ] Add PyPI badge to README
+- [ ] Set up automated releases via GitHub Actions
+
+Stay tuned — watch or star the repository to get notified when the PyPI release goes live!
+
+---
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/new-indicator`
+3. Commit your changes: `git commit -m "Add new indicator"`
+4. Push to the branch: `git push origin feature/new-indicator`
+5. Open a Pull Request
+
+---
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
