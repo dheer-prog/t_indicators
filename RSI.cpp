@@ -3,19 +3,24 @@
 #include <pybind11/numpy.h>
 using namespace std;
 namespace py=pybind11;
-vector<float> rolling_rsi(const vector<float>& data,int window)
+py::array_t<float> rolling_rsi(py::array_t<float> data,int window)
 {
+    py::array_t<float> rsi({data.size()});
+    py::buffer_info rsi_buf = rsi.request();
+    float* rsi_ptr = (float*) rsi_buf.ptr;
+    for(size_t i=0; i<data.size(); ++i) rsi_ptr[i] = NAN;
+    py::buffer_info data_buf = data.request();
+    float* data_ptr = (float*) data_buf.ptr;
     float average_gain=0.0f; 
     float average_loss=0.0f;     
-    vector<float>rsi(data.size(),NAN);
      
-    if(window>=data.size())
+    if(window>=(int)data.size())
     {
         return rsi;
     }
     for(int i=1;i<=window;i++)
     {
-        float change=data[i]-data[i-1];
+        float change=data_ptr[i]-data_ptr[i-1];
         if(change>0)
         {
             average_gain=average_gain+change;
@@ -32,15 +37,15 @@ vector<float> rolling_rsi(const vector<float>& data,int window)
     average_loss=average_loss/window; 
     if(average_loss==0.0f)
     {
-        rsi[window]=100.0f;
+        rsi_ptr[window]=100.0f;
     }
     else
     {
         float RS=average_gain/average_loss;
-        rsi[window]=100.0f-(100.0f/(1.0f+RS));
+        rsi_ptr[window]=100.0f-(100.0f/(1.0f+RS));
     }
-    for (int i = window + 1; i < data.size(); ++i) {
-        float change = data[i] - data[i - 1];
+    for (int i = window + 1; i < (int)data.size(); ++i) {
+        float change = data_ptr[i] - data_ptr[i - 1];
         float gain = (change > 0) ? change : 0.0f;
         float loss = (change < 0) ? -change : 0.0f;
 
@@ -49,10 +54,10 @@ vector<float> rolling_rsi(const vector<float>& data,int window)
         average_loss = (average_loss* (window - 1) + loss) / window;
 
         if (average_loss == 0.0f)
-            rsi[i] = 100.0f;
+            rsi_ptr[i] = 100.0f;
         else {
             float rs = average_gain / average_loss;
-            rsi[i] = 100.0f - (100.0f / (1.0f + rs));
+            rsi_ptr[i] = 100.0f - (100.0f / (1.0f + rs));
     }
     }
 
@@ -62,20 +67,18 @@ py::object rsi_series(py::object series, int window)
 {
     py::module_ np=py::module::import("numpy");
     py::module_ pd=py::module::import("pandas");
-    auto values=np.attr("asarray")(series).cast<vector<float>>(); 
-    auto index=series.attr("index");
-    auto rsi=rolling_rsi(values,window);
-    py::array result_array=py::cast(rsi);
-
-    return pd.attr("Series")(result_array,py::arg("index")=index);
+    py::array_t<float> values = np.attr("asarray")(series).cast<py::array_t<float>>();
+    py::object index=series.attr("index");
+    py::array_t<float> rsi=rolling_rsi(values,window);
+    return pd.attr("Series")(rsi,py::arg("index")=index);
 
 }
 py::object rsi_dataframe(py::object dataframe,int window)
 {
     py::module_ pd=py::module_::import("pandas");
     py::dict new_df;
-    auto cols=dataframe.attr("columns");
-    for(auto col:cols)
+    py::object cols=dataframe.attr("columns");
+    for(py::handle col: cols)
     {
         py::object series_col=dataframe.attr("__getitem__")(col);
         py::object rsi_series_result=rsi_series(series_col,window);

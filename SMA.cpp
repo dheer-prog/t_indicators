@@ -35,12 +35,13 @@ py::array_t<float> rolling_sma(const py::array_t<float>& data, int window)
         return result;
     }
     for (size_t i = 0; i < size; i++) {
-        sum += ptr[i];  // always add current element
-
-        if (i >= window) {
-            sum -= ptr[i - window];  // remove element leaving window
+        if (i < window) {
+            sum = sum + ptr[i];
+            continue;
         }
-
+        if (i >= window) {
+            sum = sum - ptr[i - window];
+        }
         if (i >= window - 1) {
             res_ptr[i] = sum / window;
         }

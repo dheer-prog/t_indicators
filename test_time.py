@@ -10,7 +10,7 @@ import math
 npNan=np.nan
 
 # pdr.get_data_yahoo = pdr.get_data_yahoo
-start=datetime.datetime(2010,1,1)
+start=datetime.datetime(2000,1,1)
 end=datetime.datetime(2025,1,1)
 tickers = [
     "AAPL", "MSFT", "AMZN", "GOOGL", "GOOG", "META", "TSLA", "NVDA", "PEP", "COST",
@@ -27,79 +27,58 @@ tickers = [
 data=yf.download(tickers,start,end)['Close']
 data.dropna(axis=1,how='any',inplace=True)
 start_time=time.time()
-rs_calculated=t.RSI_DataFrame(data,5)
+rs_calculated=t.rolling_sma_dataframe(data,20)
 end_time=time.time()
 print(f'My Method: {end_time-start_time}')
- 
- 
- 
-def rolling_rsi(data, window):
-    
-    # Handle Series input
-    if isinstance(data, pd.Series):
-        return pd.Series(rolling_rsi_single(data.values, window), index=data.index, name=data.name)
-    
-    # Handle DataFrame input
-    if isinstance(data, pd.DataFrame):
-        result = pd.DataFrame(index=data.index, columns=data.columns)
-        for col in data.columns:
-            result[col] = rolling_rsi_single(data[col].values, window)
-        return result
-    
-    # Handle array/list input (original behavior)
-    return rolling_rsi_single(data, window)
-
-
-def rolling_rsi_single(data, window):
-  
-    rsi = [math.nan] * len(data)
-    
-    if window >= len(data):
-        return rsi
-    
-    average_gain = 0.0
-    average_loss = 0.0
-    
-    # Initial average gain/loss
-    for i in range(1, int(window) + 1):
-        change = data[i] - data[i - 1]
-        if change > 0:
-            average_gain += change
-        else:
-            average_loss -= change
-    
-    average_gain /= window
-    average_loss /= window
-    
-    if average_loss == 0.0:
-        rsi[int(window)] = 100.0
-    else:
-        rs = average_gain / average_loss
-        rsi[int(window)] = 100.0 - (100.0 / (1.0 + rs))
-    
-    # Rolling calculation
-    for i in range(int(window) + 1, len(data)):
-        change = data[i] - data[i - 1]
-        gain = change if change > 0 else 0.0
-        loss = -change if change < 0 else 0.0
-        
-        # Wilder's smoothing
-        average_gain = (average_gain * (window - 1) + gain) / window
-        average_loss = (average_loss * (window - 1) + loss) / window
-        
-        if average_loss == 0.0:
-            rsi[i] = 100.0
-        else:
-            rs = average_gain / average_loss
-            rsi[i] = 100.0 - (100.0 / (1.0 + rs))
-    
-    return rsi
 start_time=time.time()
-rsi=rolling_rsi(data,5)
+ema_df= data.ewm(span=20, adjust=False).mean()
 end_time=time.time()
-print(f'Vanilla Python: {end_time-start_time}')
+print(f'Pandas Method: {end_time-start_time}')
 start_time=time.time()
-rsi_ta=ta.rsi(data, length=5)
+rsi_ta=ta.sma(data, length=20)
 end_time=time.time()
 print(f'Pandas TA: {end_time-start_time}')
+import pandas as pd
+
+def calculate_df_ema_pure(df, window):
+    """
+    Calculates EMA for all numeric columns in a DataFrame using iterative logic.
+    """
+    if df.empty:
+        return pd.DataFrame()
+
+    # Define smoothing factor
+    alpha = 2 / (window + 1)
+    
+    # Convert the entire DataFrame to a list of lists for row-by-row iteration
+    data_values = df.values.tolist()
+    column_names = df.columns
+    
+    # 1. Initialize EMA results with the first row of data
+    ema_matrix = [data_values[0]]
+    
+    # 2. Iterate through each row starting from the second one
+    for row_idx in range(1, len(data_values)):
+        prev_ema_row = ema_matrix[-1]
+        current_data_row = data_values[row_idx]
+        
+        new_ema_row = []
+        # 3. Calculate EMA for each column in the current row
+        for col_idx in range(len(current_data_row)):
+            ema_val = (current_data_row[col_idx] * alpha) + (prev_ema_row[col_idx] * (1 - alpha))
+            new_ema_row.append(ema_val)
+        
+        ema_matrix.append(new_ema_row)
+    
+    # 4. Return as a new DataFrame with original headers and index
+    return pd.DataFrame(ema_matrix, columns=column_names, index=df.index)
+
+# --- Example Usage ---
+
+
+# --- Example Usage ---
+start_time = time.time()
+ema_results = calculate_df_ema_pure(data,20)
+end_time = time.time()
+print(f"Pure Python EMA Calculation Time: {end_time - start_time:.4f}")
     

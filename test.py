@@ -17,8 +17,8 @@ df = pd.DataFrame(data, index=date_index, columns=columns)
 data_series = pd.Series([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], 
                   index=date_index)
 
-ans=t.rolling_sma_series(data_series,5)
+ans=t.ema_series(data_series,5)
  
  
 print(ans)
-print(ta.sma(data_series,length=5))
+print(ta.ema(data_series,length=5))
