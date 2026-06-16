@@ -27,9 +27,11 @@ setup(
 )
 #You need to add intraday function into williams_r"
 #Also need to fix trends.cpp
+#Also need to add multi-threading to RSI.cpp
 """
 Things which are completed and don't touch
 SMA 
-RSI
+EMA
+
 """
 #python setup.py build_ext --inplace (how to build)

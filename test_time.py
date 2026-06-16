@@ -22,16 +22,16 @@ def load_data() -> pd.DataFrame:
     return data.astype("float32")
 
 
-def my_sma(data: pd.DataFrame) -> pd.DataFrame:
-    return t.rolling_sma_dataframe(data, WINDOW)
+def my_ema(data: pd.DataFrame) -> pd.DataFrame:
+    return t.ema(data, WINDOW)
 
 
-def pandas_sma(data: pd.DataFrame) -> pd.DataFrame:
-    return data.rolling(WINDOW).mean()
+def pandas_ema(data: pd.DataFrame) -> pd.DataFrame:
+    return data.ewm(span=WINDOW, adjust=False, min_periods=WINDOW).mean()
 
 
-def pandas_ta_sma(data: pd.DataFrame) -> pd.DataFrame:
-    return data.apply(lambda column: ta.sma(column, length=WINDOW))
+def pandas_ta_ema(data: pd.DataFrame) -> pd.DataFrame:
+    return data.apply(lambda column: ta.ema(column, length=WINDOW))
 
 
 def benchmark(name: str, fn, data: pd.DataFrame) -> None:
@@ -57,10 +57,11 @@ def benchmark(name: str, fn, data: pd.DataFrame) -> None:
 def main() -> None:
     data = load_data()
     print(f"Rows: {len(data)}, Columns: {len(data.columns)}, Window: {WINDOW}")
+    print("Note: pandas ewm and pandas_ta/t_indicators use different EMA seeding rules.")
 
-    benchmark("My Library", my_sma, data)
-    benchmark("Pandas", pandas_sma, data)
-    benchmark("Pandas TA", pandas_ta_sma, data)
+    benchmark("My Library EMA", my_ema, data)
+    benchmark("Pandas EMA", pandas_ema, data)
+    benchmark("Pandas TA EMA", pandas_ta_ema, data)
 
 
 if __name__ == "__main__":

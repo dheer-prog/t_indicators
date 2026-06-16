@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
-
+#include "helper.h"
 namespace py = pybind11;
 
 namespace {
@@ -18,9 +18,6 @@ struct MatrixView {
     py::ssize_t col_stride;
 };
 
-inline float nan_value() {
-    return std::numeric_limits<float>::quiet_NaN();
-}
 
 void compute_sma_1d(const float* data,
                     py::ssize_t len,
@@ -120,9 +117,6 @@ void compute_sma_matrix_by_column(const MatrixView& input, size_t window, float*
     }
 }
 
-void compute_sma_matrix(const MatrixView& input, size_t window, float* out) {
-    compute_sma_matrix_by_column(input, window, out);
-}
 
 py::module_ pandas_module() {
     return py::module_::import("pandas");
@@ -181,7 +175,7 @@ py::object rolling_sma_dataframe(py::object data_frame, int window) {
 
     {
         py::gil_scoped_release release_gil;
-        compute_sma_matrix(view, static_cast<size_t>(window), static_cast<float*>(out_info.ptr));
+        compute_sma_matrix_by_column(view, static_cast<size_t>(window), static_cast<float*>(out_info.ptr));
     }
 
     return pandas_module().attr("DataFrame")(output,
