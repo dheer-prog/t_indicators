@@ -3,8 +3,6 @@
 #include <pybind11/numpy.h>
 using namespace std;
 namespace py=pybind11;
-py::module_ np=py::module_::import("numpy");
-py::module_ pd=py::module_::import("pandas");
 py::array_t<float> rolling_ema(py::array_t<float> data,int window)
 {
     py::array_t<float>ema({data.size()});
@@ -26,7 +24,8 @@ py::array_t<float> rolling_ema(py::array_t<float> data,int window)
 }
 py:: object ema_series(py::object series,int window)
 {
-    
+    py::module_ np = py::module_::import("numpy");
+    py::module_ pd = py::module_::import("pandas");
     py::array_t<float> values=np.attr("asarray")(series).cast<py::array_t<float>>();
     py::object index=series.attr("index");
 
@@ -35,6 +34,7 @@ py:: object ema_series(py::object series,int window)
 }
 py::object ema_dataframe(py::object dataframe,int window)
 {
+    py::module_ pd = py::module_::import("pandas");
     py::dict new_df;
     py::object index=dataframe.attr("index");
     py::object cols =dataframe.attr("columns");

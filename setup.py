@@ -1,5 +1,13 @@
+import os
 from setuptools import setup, Extension
 import pybind11
+
+if os.name == 'nt':
+    compile_args = ['/O2', '/std:c++17', '/DNDEBUG']
+    link_args = []
+else:
+    compile_args = ['-std=c++17', '-O3', '-DNDEBUG', '-march=native', '-flto']
+    link_args = ['-flto']
 
 ext_modules = [
     Extension(
@@ -7,7 +15,8 @@ ext_modules = [
         ['binding.cpp', 'SMA.cpp', 'RSI.cpp', 'williams_r.cpp', 'trend.cpp', 'volatility.cpp', 'probability.cpp','ema.cpp'],
         include_dirs=[pybind11.get_include()],
         language='c++',
-        extra_compile_args=['-std=c++17'],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
     ),
 ]
 

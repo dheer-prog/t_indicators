@@ -1,75 +1,195 @@
 #include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
 #include <pybind11/numpy.h>
+#include <algorithm>
+#include <limits>
+#include <stdexcept>
+#include <thread>
+#include <vector>
 
-using namespace std;
 namespace py = pybind11;
 
-py::array_t<float> rolling_sma(const py::array_t<float>& data, int window)
-{
-    py::buffer_info buf = data.request();
-    if (buf.ndim != 1) throw std::runtime_error("Data must be 1D");
-    float* ptr = static_cast<float*>(buf.ptr);
-    size_t size = buf.shape[0];
-    float sum = 0.0;
+namespace {
 
-    py::array_t<float> result = py::array_t<float>(size);
-    // Create result numpy array
-    py::buffer_info res_buf = result.request(true); // writable
-    //Gives me a pointer to results array with all its info such as ndim,shape,and a raw ptr
-    float* res_ptr = static_cast<float*>(res_buf.ptr);
-    //Gives me a raw float ptr
-    std::fill(res_ptr, res_ptr + size, std::numeric_limits<float>::quiet_NaN());
-    //fills results with NAN
-     if(window<=0)
+struct MatrixView {
+    const float* data;
+    py::ssize_t rows;
+    py::ssize_t cols;
+    py::ssize_t row_stride;
+    py::ssize_t col_stride;
+};
+
+inline float nan_value() {
+    return std::numeric_limits<float>::quiet_NaN();
+}
+
+void compute_sma_1d(const float* data,
+                    py::ssize_t len,
+                    py::ssize_t in_stride,
+                    size_t window,
+                    float* out,
+                    py::ssize_t out_stride) {
+    for (py::ssize_t i = 0; i < len; ++i) {
+        out[i * out_stride] = nan_value();
+    }
+    if (window == 0 || static_cast<py::ssize_t>(window) > len) {
+        return;
+    }
+
+    const float inv_window = 1.0f / static_cast<float>(window);
+    float sum = 0.0f;
+
+    for (size_t i = 0; i < window; ++i) {
+        sum += data[static_cast<py::ssize_t>(i) * in_stride];
+    }
+
+    out[(static_cast<py::ssize_t>(window) - 1) * out_stride] = sum * inv_window;
+
+    for (py::ssize_t i = static_cast<py::ssize_t>(window); i < len; ++i) {
+        sum += data[i * in_stride] - data[(i - static_cast<py::ssize_t>(window)) * in_stride];
+        out[i * out_stride] = sum * inv_window;
+    }
+}
+
+ 
+
+void compute_sma_matrix_by_column(const MatrixView& input, size_t window, float* out) {
+    const py::ssize_t rows = input.rows;
+    const py::ssize_t cols = input.cols;
+    const size_t col_count = static_cast<size_t>(cols);
+
+    std::fill_n(out, rows * cols, nan_value());
+    if (window == 0 || static_cast<py::ssize_t>(window) > rows) {
+        return;
+    }
+
+    const unsigned int hw = std::max(1u, std::thread::hardware_concurrency());
+    const size_t num_threads = (col_count >= 32) ? std::min<size_t>(hw, col_count) : 1;
+    const size_t chunk = (col_count + num_threads - 1) / num_threads;
+
+
+    //THe following block is an inline function this is equivalent to:-
+    //void* worker(size_t start_col,size_t end_col){
+        //for (size_t c = start_col; c < end_col; ++c) {
+        //     compute_sma_1d(input.data + static_cast<py::ssize_t>(c) * input.col_stride,
+        //                    rows,
+        //                    input.row_stride,
+        //                    window,
+        //                    out + static_cast<py::ssize_t>(c),
+        //                    cols);
+        // }
+    //} 
+    //
+    auto worker = [&](size_t start_col, size_t end_col) {
+        for (size_t c = start_col; c < end_col; ++c) {
+            compute_sma_1d(input.data + static_cast<py::ssize_t>(c) * input.col_stride,
+                           rows,
+                           input.row_stride,
+                           window,
+                           out + static_cast<py::ssize_t>(c),
+                           cols);
+        }
+    };
+
+    if (num_threads == 1) {
+        worker(0, col_count);
+        return;
+    }
+
+    std::vector<std::thread> workers;
+    workers.reserve(num_threads);
+    //This is very interesting 
+    //Apparently what reserve does is tell vector to expect num_threads size
+    //the vector may exceed the size specified but initially it will allcoate num_threads size
+    //THis is useful say initially vector allocates a size 4*sizeof(std::thread) and I push_back 
+    //the 5th thread the vector has to first copy 4 existing threads to a new place in memory before adding 
+    //the 5th thread, reserve prevents this from happening
+
+    for (size_t t = 0; t < num_threads; ++t) {
+        const size_t start = t * chunk;
+        const size_t end = std::min(start + chunk, col_count);
+        if (start >= end) {
+            break;
+        }
+        workers.emplace_back(worker, start, end);
+        //emplace_back is used insted of push_back as it doesn't create a copy of the variable 
+        //I am going to push
+    }
+
+    for (auto& thread : workers) {
+        thread.join();
+    }
+}
+
+void compute_sma_matrix(const MatrixView& input, size_t window, float* out) {
+    compute_sma_matrix_by_column(input, window, out);
+}
+
+py::module_ pandas_module() {
+    return py::module_::import("pandas");
+}
+
+}  // namespace
+
+py::object rolling_sma_series(py::object series, int window) {
+    py::array input = series.attr("to_numpy")(py::arg("dtype") = py::dtype::of<float>(),
+                                              py::arg("copy") = false);
+    auto info = input.request();
+
+    if (info.ndim != 1) {
+        throw std::runtime_error("Expected a 1D pandas Series.");
+    }
+
+    py::array_t<float> output(info.shape[0]);
+    auto out_info = output.request();
+
     {
-        return result;
+        py::gil_scoped_release release_gil;
+        compute_sma_1d(static_cast<const float*>(info.ptr),
+                       info.shape[0],
+                       info.strides[0] / static_cast<py::ssize_t>(sizeof(float)),
+                       static_cast<size_t>(window),
+                       static_cast<float*>(out_info.ptr),
+                       1);
     }
-    if (window == 1) {
-        for (size_t i = 0; i < size; i++) {
-            res_ptr[i] = ptr[i];
-        }
-        return result;
-    }
-    if (window > size) {
-        return result;
-    }
-    for (size_t i = 0; i < size; i++) {
-        if (i < window) {
-            sum = sum + ptr[i];
-            continue;
-        }
-        if (i >= window) {
-            sum = sum - ptr[i - window];
-        }
-        if (i >= window - 1) {
-            res_ptr[i] = sum / window;
-        }
-    }
-    return result;
+
+    return pandas_module().attr("Series")(output,
+                                          py::arg("index") = series.attr("index"),
+                                          py::arg("name") = series.attr("name"));
 }
-py::object rolling_sma_series(py::object series, int window)
-{
-    py::module_ pd = py::module_::import("pandas");
-    py::array_t<float> values = series.attr("values").cast<py::array_t<float>>();
-    py::object index = series.attr("index");
-    py::array_t<float> result = rolling_sma(values, window);
-    return pd.attr("Series")(result, py::arg("index") = index);
-}
-py::object rolling_sma_dataframe(py::object data_frame, int window)
-{
-    py::module_ pd = py::module_::import("pandas");
-    py::dict new_df;
-    py::object cols = data_frame.attr("columns");
-    for (py::handle col : cols) {
-        py::object series_col = data_frame.attr("__getitem__")(col);
-        py::object sma_series = rolling_sma_series(series_col, window);
-        new_df[col] = sma_series;
+
+py::object rolling_sma_dataframe(py::object data_frame, int window) {
+    py::array input = data_frame.attr("to_numpy")(py::arg("dtype") = py::dtype::of<float>(),
+                                                  py::arg("copy") = false);
+    auto info = input.request();
+
+    if (info.ndim != 2) {
+        throw std::runtime_error("Expected a 2D pandas DataFrame.");
     }
-    return pd.attr("DataFrame")(new_df, py::arg("index") = data_frame.attr("index"));
+
+    const py::ssize_t rows = info.shape[0];
+    const py::ssize_t cols = info.shape[1];
+    MatrixView view{
+        static_cast<const float*>(info.ptr),
+        rows,
+        cols,
+        info.strides[0] / static_cast<py::ssize_t>(sizeof(float)),
+        info.strides[1] / static_cast<py::ssize_t>(sizeof(float)),
+    };
+
+    py::array_t<float> output({rows, cols});
+    auto out_info = output.request();
+
+    {
+        py::gil_scoped_release release_gil;
+        compute_sma_matrix(view, static_cast<size_t>(window), static_cast<float*>(out_info.ptr));
+    }
+
+    return pandas_module().attr("DataFrame")(output,
+                                             py::arg("index") = data_frame.attr("index"),
+                                             py::arg("columns") = data_frame.attr("columns"));
 }
-void register_rolling(py::module_ &m)
-{
+
+void register_rolling(py::module_& m) {
     m.def("rolling_sma_series", &rolling_sma_series, "Compute rolling SMA of a series");
     m.def("rolling_sma_dataframe", &rolling_sma_dataframe, "Compute rolling SMA of the entire dataframe");
 }
