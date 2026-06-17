@@ -32,6 +32,6 @@ setup(
 Things which are completed and don't touch
 SMA 
 EMA
-
+RSI
 """
 #python setup.py build_ext --inplace (how to build)
