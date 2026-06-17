@@ -1,13 +1,14 @@
 from pathlib import Path
 import time
 
+import numpy as np
 import pandas as pd
 import pandas_ta as ta
 import t_indicators as t
 
 
 DATA_PATH = Path("data.csv")
-WINDOW = 20
+WINDOW = 14
 RUNS = 10
 WARMUPS = 3
 
@@ -22,16 +23,51 @@ def load_data() -> pd.DataFrame:
     return data.astype("float32")
 
 
-def my_ema(data: pd.DataFrame) -> pd.DataFrame:
-    return t.ema(data, WINDOW)
+def pandas_rsi_series(series: pd.Series) -> pd.Series:
+    values = series.astype("float64").to_numpy(copy=False)
+    out = np.full(values.shape[0], np.nan, dtype=np.float64)
+
+    if WINDOW <= 0 or WINDOW >= values.shape[0]:
+        return pd.Series(out, index=series.index, name=series.name)
+
+    deltas = np.diff(values)
+    gains = np.clip(deltas, 0.0, None)
+    losses = np.clip(-deltas, 0.0, None)
+
+    avg_gain = gains[:WINDOW].mean()
+    avg_loss = losses[:WINDOW].mean()
+
+    if avg_loss == 0.0:
+        out[WINDOW] = 100.0
+    else:
+        rs = avg_gain / avg_loss
+        out[WINDOW] = 100.0 - (100.0 / (1.0 + rs))
+
+    for i in range(WINDOW + 1, values.shape[0]):
+        gain = gains[i - 1]
+        loss = losses[i - 1]
+        avg_gain = ((avg_gain * (WINDOW - 1)) + gain) / WINDOW
+        avg_loss = ((avg_loss * (WINDOW - 1)) + loss) / WINDOW
+
+        if avg_loss == 0.0:
+            out[i] = 100.0
+        else:
+            rs = avg_gain / avg_loss
+            out[i] = 100.0 - (100.0 / (1.0 + rs))
+
+    return pd.Series(out, index=series.index, name=series.name)
 
 
-def pandas_ema(data: pd.DataFrame) -> pd.DataFrame:
-    return data.ewm(span=WINDOW, adjust=False, min_periods=WINDOW).mean()
+def my_rsi(data: pd.DataFrame) -> pd.DataFrame:
+    return t.RSI_DataFrame(data, WINDOW)
 
 
-def pandas_ta_ema(data: pd.DataFrame) -> pd.DataFrame:
-    return data.apply(lambda column: ta.ema(column, length=WINDOW))
+def pandas_rsi(data: pd.DataFrame) -> pd.DataFrame:
+    return data.apply(pandas_rsi_series)
+
+
+def pandas_ta_rsi(data: pd.DataFrame) -> pd.DataFrame:
+    return data.apply(lambda column: ta.rsi(column, length=WINDOW))
 
 
 def benchmark(name: str, fn, data: pd.DataFrame) -> None:
@@ -57,11 +93,10 @@ def benchmark(name: str, fn, data: pd.DataFrame) -> None:
 def main() -> None:
     data = load_data()
     print(f"Rows: {len(data)}, Columns: {len(data.columns)}, Window: {WINDOW}")
-    print("Note: pandas ewm and pandas_ta/t_indicators use different EMA seeding rules.")
 
-    benchmark("My Library EMA", my_ema, data)
-    benchmark("Pandas EMA", pandas_ema, data)
-    benchmark("Pandas TA EMA", pandas_ta_ema, data)
+    benchmark("My Library RSI", my_rsi, data)
+    benchmark("Pandas RSI", pandas_rsi, data)
+    benchmark("Pandas TA RSI", pandas_ta_rsi, data)
 
 
 if __name__ == "__main__":

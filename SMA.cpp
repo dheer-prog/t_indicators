@@ -1,7 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <algorithm>
-#include <limits>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -25,9 +24,7 @@ void compute_sma_1d(const float* data,
                     size_t window,
                     float* out,
                     py::ssize_t out_stride) {
-    for (py::ssize_t i = 0; i < len; ++i) {
-        out[i * out_stride] = nan_value();
-    }
+    
     if (window == 0 || static_cast<py::ssize_t>(window) > len) {
         return;
     }
@@ -138,6 +135,7 @@ py::object rolling_sma_series(py::object series, int window) {
 
     {
         py::gil_scoped_release release_gil;
+        std::fill_n(static_cast<float*>(out_info.ptr),out_info.shape[0],nan_value());
         compute_sma_1d(static_cast<const float*>(info.ptr),
                        info.shape[0],
                        info.strides[0] / static_cast<py::ssize_t>(sizeof(float)),

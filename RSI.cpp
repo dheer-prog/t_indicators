@@ -1,91 +1,179 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
+#include <stdexcept>
+#include <thread>
+#include <vector>
+#include "helper.h"
 using namespace std;
 namespace py=pybind11;
-py::array_t<float> rolling_rsi(py::array_t<float> data,int window)
-{
-    py::array_t<float> rsi({data.size()});
-    py::buffer_info rsi_buf = rsi.request();
-    float* rsi_ptr = (float*) rsi_buf.ptr;
-    for(size_t i=0; i<data.size(); ++i) rsi_ptr[i] = NAN;
-    py::buffer_info data_buf = data.request();
-    float* data_ptr = (float*) data_buf.ptr;
-    float average_gain=0.0f; 
-    float average_loss=0.0f;     
-     
-    if(window>=(int)data.size())
-    {
-        return rsi;
-    }
-    for(int i=1;i<=window;i++)
-    {
-        float change=data_ptr[i]-data_ptr[i-1];
-        if(change>0)
-        {
-            average_gain=average_gain+change;
+namespace{
+    struct MatrixView {
+        const float* data;
+        py::ssize_t rows;
+        py::ssize_t cols;
+        py::ssize_t row_stride;
+        py::ssize_t col_stride;
+    };
 
+//In this entire code the fundamental assumption is out_stride and in_stride is 1
+
+void compute_rsi_1d(const float* data,
+                    py::ssize_t len,
+                    py::ssize_t in_stride,
+                    float* out,
+                    py::ssize_t window=14,
+                    py::ssize_t out_stride=1){
+                
+    if (window == 0 || window >= len) {
+        return;
+    }
+    float gain=0.0f;
+    float loss=0.0f; 
+    float init_price=data[0]; 
+    for(py::ssize_t i=1;i<=window;i++){
+        if(init_price>data[i * in_stride]){
+            loss=loss+abs(init_price-data[i * in_stride]);
         }
-        else
-        {
-            average_loss=average_loss-change;
+        else{
+            gain=gain+data[i * in_stride]-init_price; 
         }
-        
-       
+        init_price=data[i*in_stride]; 
+    } 
+    float wf=static_cast<float>(window); 
+    float avg_gain=gain/wf; 
+    float avg_loss=loss/wf;
+    float rs_init;
+    if(avg_loss==0){
+        rs_init=inf_val(); 
     }
-    average_gain=average_gain/window;
-    average_loss=average_loss/window; 
-    if(average_loss==0.0f)
-    {
-        rsi_ptr[window]=100.0f;
+    else{
+        rs_init=1+(avg_gain/avg_loss);
     }
-    else
-    {
-        float RS=average_gain/average_loss;
-        rsi_ptr[window]=100.0f-(100.0f/(1.0f+RS));
+    out[window * out_stride]=100*(1.0f-(1/rs_init));
+    float current_gain=0.0f; 
+    float current_loss=0.0f;  
+    for(py::ssize_t i=window+1;i<len;i++){
+        if(data[i * in_stride]>data[(i-1) * in_stride]){
+            current_gain=data[i * in_stride]-data[(i-1) * in_stride];
+            current_loss=0; 
+        }
+        else{
+            current_loss=data[(i-1) * in_stride]-data[i * in_stride]; 
+            current_gain=0; 
+        }
+        avg_gain=((avg_gain*(window-1))+current_gain)/wf;
+        avg_loss=((avg_loss*(window-1))+current_loss)/wf;
+        rs_init=1+(avg_gain/avg_loss);  
+        out[i * out_stride]=100*(1-(1/rs_init)); 
     }
-    for (int i = window + 1; i < (int)data.size(); ++i) {
-        float change = data_ptr[i] - data_ptr[i - 1];
-        float gain = (change > 0) ? change : 0.0f;
-        float loss = (change < 0) ? -change : 0.0f;
-
-        // Wilder’s EMA smoothing
-        average_gain = (average_gain* (window - 1) + gain) / window;
-        average_loss = (average_loss* (window - 1) + loss) / window;
-
-        if (average_loss == 0.0f)
-            rsi_ptr[i] = 100.0f;
-        else {
-            float rs = average_gain / average_loss;
-            rsi_ptr[i] = 100.0f - (100.0f / (1.0f + rs));
-    }
-    }
-
-    return rsi;
 }
+void compute_rsi_matrix_by_column(const MatrixView& input,size_t window, float* out){
+    const py::ssize_t rows = input.rows;
+    const py::ssize_t cols = input.cols;
+    const size_t col_count = static_cast<size_t>(cols);
+    std::fill_n(out, rows * cols, nan_value());
+    if (window == 0 || static_cast<py::ssize_t>(window) > rows) {
+        return;
+    }
+     
+    const unsigned int hw = std::max(1u, std::thread::hardware_concurrency());
+    const size_t num_threads = (col_count >= 32) ? std::min<size_t>(hw, col_count) : 1;
+    const size_t chunk = (col_count + num_threads - 1) / num_threads;
+    auto worker = [&](size_t start_col, size_t end_col) {
+        for (size_t c = start_col; c < end_col; ++c) {
+            compute_rsi_1d(input.data + static_cast<py::ssize_t>(c) * input.col_stride,
+                           rows,
+                           input.row_stride,
+                           out + static_cast<py::ssize_t>(c),
+                           static_cast<py::ssize_t>(window),
+                           cols);
+        }
+    };
+    if (num_threads == 1) {
+        worker(0, col_count);
+        return;
+    }
+    std::vector<std::thread> workers;
+    workers.reserve(num_threads); 
+    for (size_t t = 0; t < num_threads; ++t) {
+        const size_t start = t * chunk;
+        const size_t end = std::min(start + chunk, col_count);
+        if (start >= end) {
+            break;
+        }
+        workers.emplace_back(worker, start, end);
+    }
+
+    for (auto& thread : workers) {
+        thread.join();
+    }
+}
+py::module_ pandas_module() {
+    return py::module_::import("pandas");
+}
+}
+
 py::object rsi_series(py::object series, int window)
 {
-    py::module_ np=py::module::import("numpy");
-    py::module_ pd=py::module::import("pandas");
-    py::array_t<float> values = np.attr("asarray")(series).cast<py::array_t<float>>();
-    py::object index=series.attr("index");
-    py::array_t<float> rsi=rolling_rsi(values,window);
-    return pd.attr("Series")(rsi,py::arg("index")=index);
+    py::array input = series.attr("to_numpy")(py::arg("dtype") = py::dtype::of<float>(),
+                                              py::arg("copy") = false);
+    auto info = input.request();
+
+    if (info.ndim != 1) {
+        throw std::runtime_error("Expected a 1D pandas Series.");
+    }
+
+    py::array_t<float> output(info.shape[0]);
+    auto out_info = output.request();
+
+    {
+        py::gil_scoped_release release_gil;
+        std::fill_n(static_cast<float*>(out_info.ptr),out_info.shape[0],nan_value());
+        compute_rsi_1d(static_cast<const float*>(info.ptr),
+                       info.shape[0],
+                       info.strides[0] / static_cast<py::ssize_t>(sizeof(float)),
+                       static_cast<float*>(out_info.ptr),
+                       static_cast<py::ssize_t>(window),
+                       1);
+    }
+
+    return pandas_module().attr("Series")(output,
+                                          py::arg("index") = series.attr("index"),
+                                          py::arg("name") = series.attr("name"));
+
 
 }
-py::object rsi_dataframe(py::object dataframe,int window)
-{
-    py::module_ pd=py::module_::import("pandas");
-    py::dict new_df;
-    py::object cols=dataframe.attr("columns");
-    for(py::handle col: cols)
-    {
-        py::object series_col=dataframe.attr("__getitem__")(col);
-        py::object rsi_series_result=rsi_series(series_col,window);
-        new_df[col]=rsi_series_result;
+py::object rsi_dataframe(py::object data_frame, int window) {
+    py::array input = data_frame.attr("to_numpy")(py::arg("dtype") = py::dtype::of<float>(),
+                                                  py::arg("copy") = false);
+    auto info = input.request();
 
+    if (info.ndim != 2) {
+        throw std::runtime_error("Expected a 2D pandas DataFrame.");
     }
-    return pd.attr("DataFrame")(new_df, py::arg("index")=dataframe.attr("index"));
+
+    const py::ssize_t rows = info.shape[0];
+    const py::ssize_t cols = info.shape[1];
+    MatrixView view{
+        static_cast<const float*>(info.ptr),
+        rows,
+        cols,
+        info.strides[0] / static_cast<py::ssize_t>(sizeof(float)),
+        info.strides[1] / static_cast<py::ssize_t>(sizeof(float)),
+    };
+
+    py::array_t<float> output({rows, cols});
+    auto out_info = output.request();
+
+    {
+        py::gil_scoped_release release_gil;
+        compute_rsi_matrix_by_column(view, static_cast<size_t>(window), static_cast<float*>(out_info.ptr));
+    }
+
+    return pandas_module().attr("DataFrame")(output,
+                                             py::arg("index") = data_frame.attr("index"),
+                                             py::arg("columns") = data_frame.attr("columns"));
 }
 void register_rsi(py::module_ &m)
 {
