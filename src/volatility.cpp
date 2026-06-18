@@ -3,7 +3,7 @@
 #include <pybind11/numpy.h>
 using namespace std;
 namespace py=pybind11;
-#include"probability.h"
+#include"include/probability.h"
 
 vector<float> returns(const vector<float>& data)
 {

@@ -1,10 +1,11 @@
 from pathlib import Path
+from functools import lru_cache
 import time
 
-import numpy as np
 import pandas as pd
 import pandas_ta as ta
 import t_indicators as t
+import yfinance as yf
 
 
 DATA_PATH = Path("data.csv")
@@ -23,62 +24,84 @@ def load_data() -> pd.DataFrame:
     return data.astype("float32")
 
 
-def pandas_rsi_series(series: pd.Series) -> pd.Series:
-    values = series.astype("float64").to_numpy(copy=False)
-    out = np.full(values.shape[0], np.nan, dtype=np.float64)
+@lru_cache(maxsize=1)
+def load_williams_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    close_only = load_data()
+    tickers = close_only.columns.tolist()
+    start = close_only.index.min()
+    end = close_only.index.max() + pd.Timedelta(days=1)
 
-    if WINDOW <= 0 or WINDOW >= values.shape[0]:
-        return pd.Series(out, index=series.index, name=series.name)
+    ohlc = yf.download(
+        tickers=tickers,
+        start=start.strftime("%Y-%m-%d"),
+        end=end.strftime("%Y-%m-%d"),
+        auto_adjust=False,
+        progress=False,
+        group_by="column",
+    )
+    if ohlc.empty:
+        raise RuntimeError("yfinance returned no data for Williams %R benchmark.")
 
-    deltas = np.diff(values)
-    gains = np.clip(deltas, 0.0, None)
-    losses = np.clip(-deltas, 0.0, None)
+    open_data = ohlc["Open"].astype("float32")
+    high_data = ohlc["High"].astype("float32")
+    low_data = ohlc["Low"].astype("float32")
+    close_data = ohlc["Close"].astype("float32")
 
-    avg_gain = gains[:WINDOW].mean()
-    avg_loss = losses[:WINDOW].mean()
+    common_columns = sorted(
+        set(open_data.columns) & set(high_data.columns) & set(low_data.columns) & set(close_data.columns)
+    )
+    open_data = open_data[common_columns]
+    high_data = high_data[common_columns]
+    low_data = low_data[common_columns]
+    close_data = close_data[common_columns]
 
-    if avg_loss == 0.0:
-        out[WINDOW] = 100.0
-    else:
-        rs = avg_gain / avg_loss
-        out[WINDOW] = 100.0 - (100.0 / (1.0 + rs))
+    valid_rows = ~(
+        open_data.isna().any(axis=1)
+        | high_data.isna().any(axis=1)
+        | low_data.isna().any(axis=1)
+        | close_data.isna().any(axis=1)
+    )
+    open_data = open_data.loc[valid_rows]
+    high_data = high_data.loc[valid_rows]
+    low_data = low_data.loc[valid_rows]
+    close_data = close_data.loc[valid_rows]
 
-    for i in range(WINDOW + 1, values.shape[0]):
-        gain = gains[i - 1]
-        loss = losses[i - 1]
-        avg_gain = ((avg_gain * (WINDOW - 1)) + gain) / WINDOW
-        avg_loss = ((avg_loss * (WINDOW - 1)) + loss) / WINDOW
+    if open_data.empty or not common_columns:
+        raise RuntimeError("No complete OHLC rows were available for Williams %R benchmark.")
 
-        if avg_loss == 0.0:
-            out[i] = 100.0
-        else:
-            rs = avg_gain / avg_loss
-            out[i] = 100.0 - (100.0 / (1.0 + rs))
-
-    return pd.Series(out, index=series.index, name=series.name)
-
-
-def my_rsi(data: pd.DataFrame) -> pd.DataFrame:
-    return t.RSI_DataFrame(data, WINDOW)
-
-
-def pandas_rsi(data: pd.DataFrame) -> pd.DataFrame:
-    return data.apply(pandas_rsi_series)
-
-
-def pandas_ta_rsi(data: pd.DataFrame) -> pd.DataFrame:
-    return data.apply(lambda column: ta.rsi(column, length=WINDOW))
+    return open_data, high_data, low_data, close_data
 
 
-def benchmark(name: str, fn, data: pd.DataFrame) -> None:
+def prepare_williams_inputs(
+    data: pd.DataFrame, window: int
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if window <= 0:
+        raise ValueError("window must be positive")
+
+    return load_williams_data()
+
+
+def my_williams(high_data: pd.DataFrame, low_data: pd.DataFrame, close_data: pd.DataFrame) -> pd.DataFrame:
+    return t.williams_r_DataFrame(high_data, low_data, close_data, WINDOW)
+
+
+def pandas_ta_williams(high_data: pd.DataFrame, low_data: pd.DataFrame, close_data: pd.DataFrame) -> pd.DataFrame:
+    result = {
+        column: ta.willr(high_data[column], low_data[column], close_data[column], length=WINDOW)
+        for column in close_data.columns
+    }
+    return pd.DataFrame(result, index=close_data.index)
+
+
+def benchmark(name: str, fn) -> None:
     for _ in range(WARMUPS):
-        result = fn(data)
+        result = fn()
         _ = result.shape
 
     timings = []
     for _ in range(RUNS):
         start = time.perf_counter()
-        result = fn(data)
+        result = fn()
         _ = result.shape
         timings.append(time.perf_counter() - start)
 
@@ -92,11 +115,15 @@ def benchmark(name: str, fn, data: pd.DataFrame) -> None:
 
 def main() -> None:
     data = load_data()
-    print(f"Rows: {len(data)}, Columns: {len(data.columns)}, Window: {WINDOW}")
+    _, high_data, low_data, close_data = prepare_williams_inputs(data, WINDOW)
 
-    benchmark("My Library RSI", my_rsi, data)
-    benchmark("Pandas RSI", pandas_rsi, data)
-    benchmark("Pandas TA RSI", pandas_ta_rsi, data)
+    print(
+        f"Williams %R benchmark rows={len(close_data)}, columns={len(close_data.columns)}, "
+        f"window={WINDOW}"
+    )
+
+    benchmark("My Library Williams %R", lambda: my_williams(high_data, low_data, close_data))
+    benchmark("Pandas TA Williams %R", lambda: pandas_ta_williams(high_data, low_data, close_data))
 
 
 if __name__ == "__main__":

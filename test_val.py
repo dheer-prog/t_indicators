@@ -2,18 +2,21 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd
 import pandas_ta as ta
 import t_indicators as t
+import yfinance as yf
 
 
 DEFAULT_DATA_PATH = Path("data.csv")
 DEFAULT_WINDOW = 14
 DEFAULT_ATOL = 1e-4
 DEFAULT_RTOL = 1e-5
-INDICATOR_TO_COMPARE = "ema"
+INDICATOR_TO_COMPARE = "williams_r"
+WILLIAMS_DATA_PATH = DEFAULT_DATA_PATH
 
 
 def load_data(path: Path) -> pd.DataFrame:
@@ -22,6 +25,55 @@ def load_data(path: Path) -> pd.DataFrame:
 
     data = pd.read_csv(path, index_col="Date", parse_dates=["Date"])
     return data.astype("float32")
+
+
+@lru_cache(maxsize=4)
+def load_williams_data(path_str: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    path = Path(path_str)
+    close_only = load_data(path)
+    tickers = close_only.columns.tolist()
+    start = close_only.index.min()
+    end = close_only.index.max() + pd.Timedelta(days=1)
+
+    ohlc = yf.download(
+        tickers=tickers,
+        start=start.strftime("%Y-%m-%d"),
+        end=end.strftime("%Y-%m-%d"),
+        auto_adjust=False,
+        progress=False,
+        group_by="column",
+    )
+    if ohlc.empty:
+        raise RuntimeError("yfinance returned no data for Williams %R test.")
+
+    open_data = ohlc["Open"].astype("float32")
+    high_data = ohlc["High"].astype("float32")
+    low_data = ohlc["Low"].astype("float32")
+    close_data = ohlc["Close"].astype("float32")
+
+    common_columns = sorted(
+        set(open_data.columns) & set(high_data.columns) & set(low_data.columns) & set(close_data.columns)
+    )
+    open_data = open_data[common_columns]
+    high_data = high_data[common_columns]
+    low_data = low_data[common_columns]
+    close_data = close_data[common_columns]
+
+    valid_rows = ~(
+        open_data.isna().any(axis=1)
+        | high_data.isna().any(axis=1)
+        | low_data.isna().any(axis=1)
+        | close_data.isna().any(axis=1)
+    )
+    open_data = open_data.loc[valid_rows]
+    high_data = high_data.loc[valid_rows]
+    low_data = low_data.loc[valid_rows]
+    close_data = close_data.loc[valid_rows]
+
+    if open_data.empty or not common_columns:
+        raise RuntimeError("No complete OHLC rows were available for Williams %R test.")
+
+    return open_data, high_data, low_data, close_data
 
 
 def pandas_sma(data: pd.DataFrame, window: int) -> pd.DataFrame:
@@ -95,21 +147,45 @@ def my_rsi(data: pd.DataFrame, window: int) -> pd.DataFrame:
     return t.RSI_DataFrame(data, window)
 
 
+def prepare_williams_inputs(
+    path: Path, window: int
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if window <= 0:
+        raise ValueError("window must be positive")
+
+    return load_williams_data(str(path.resolve()))
+
+
+def pandas_ta_williams(data: pd.DataFrame, window: int) -> pd.DataFrame:
+    _, high_data, low_data, close_data = prepare_williams_inputs(WILLIAMS_DATA_PATH, window)
+    result = {
+        column: ta.willr(high_data[column], low_data[column], close_data[column], length=window)
+        for column in close_data.columns
+    }
+    return pd.DataFrame(result, index=close_data.index)
+
+
+def my_williams(data: pd.DataFrame, window: int) -> pd.DataFrame:
+    _, high_data, low_data, close_data = prepare_williams_inputs(WILLIAMS_DATA_PATH, window)
+    return t.williams_r_DataFrame(high_data, low_data, close_data, window)
+
+
 INDICATORS = {
     "sma": {
-        "pandas": pandas_sma,
         "pandas_ta": pandas_ta_sma,
         "framework": my_sma,
     },
     "ema": {
-        "pandas": pandas_ema,
         "pandas_ta": pandas_ta_ema,
         "framework": my_ema,
     },
     "rsi": {
-        "pandas": pandas_rsi,
         "pandas_ta": pandas_ta_rsi,
         "framework": my_rsi,
+    },
+    "williams_r": {
+        "pandas_ta": pandas_ta_williams,
+        "framework": my_williams,
     },
 }
 
@@ -182,6 +258,8 @@ def run_indicator(name: str, data: pd.DataFrame, window: int, atol: float, rtol:
     print(f"\n{name.upper()} (window={window})")
     if name == "ema":
         print("  Note: pandas ewm uses a different EMA seed than pandas_ta and the framework.")
+    if name == "williams_r":
+        print("  Note: Williams %R downloads OHLC data from yfinance and compares high/low/close inputs.")
 
     outputs: dict[str, pd.DataFrame] = {}
     for source_name, fn in INDICATORS[name].items():
@@ -195,8 +273,6 @@ def run_indicator(name: str, data: pd.DataFrame, window: int, atol: float, rtol:
         return
 
     pairs = [
-        ("pandas", "pandas_ta"),
-        ("pandas", "framework"),
         ("pandas_ta", "framework"),
     ]
 
@@ -242,8 +318,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    global WILLIAMS_DATA_PATH
     args = parse_args()
     data = load_data(args.data)
+    WILLIAMS_DATA_PATH = args.data
 
     print(
         f"Loaded {len(data)} rows x {len(data.columns)} columns from {args.data} "

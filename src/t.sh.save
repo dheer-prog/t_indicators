@@ -1,0 +1,14 @@
+[Unit]
+Description=JioPC Session Restore On Login
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+Environment=DISPLAY=:0
+KillMode=process
+ExecStartPre=/bin/bash /home/d/jio_pc/wait_for_desktop.sh
+ExecStart=/usr/bin/python3 /home/d/jio_pc/restore.py --session-wait-timeout 30 --wm-ready-timeout 30
+RemainAfterExit=no
+
+[Install]
+WantedBy=default.target

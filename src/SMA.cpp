@@ -4,7 +4,7 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
-#include "helper.h"
+#include "include/helper.h"
 namespace py = pybind11;
 
 namespace {

@@ -8,7 +8,8 @@ A Python library for calculating technical indicators on time series data — op
 
 - Calculate a wide range of technical indicators (moving averages, oscillators, momentum, volatility, and more)
 - Seamlessly integrates with `yfinance` OHLCV data
-- Built on top of `pandas` and `numpy` for fast, vectorized computation
+- Native C++ indicator kernels with Python bindings
+- Chunk-aware CSV loading so large datasets do not need to be read into memory all at once
 - Clean, intuitive API
 
 ---
@@ -16,7 +17,6 @@ A Python library for calculating technical indicators on time series data — op
 ## Requirements
 
 - Python 3.8+
-- `pandas`
 - `numpy`
 - `yfinance`
 
@@ -59,17 +59,48 @@ pip install -r requirements.txt
 ## Quick Start
 ```python
 import yfinance as yf
-from technical_indicators import SMA, RSI, MACD
+import pandas as pd
+import t_indicators as ti
 
 # Download stock data
 df = yf.download("AAPL", start="2023-01-01", end="2024-01-01")
 
 # Calculate indicators
-df["SMA_20"]             = SMA(df["Close"], period=20)
-df["RSI_14"]             = RSI(df["Close"], period=14)
-df["MACD"], df["Signal"] = MACD(df["Close"])
+df["EMA_20"] = ti.ema_series(df["Close"], 20)
+df["RSI_14"] = ti.RSI(df["Close"], 14)
 
-print(df[["Close", "SMA_20", "RSI_14", "MACD", "Signal"]].tail())
+print(df[["Close", "EMA_20", "RSI_14"]].tail())
+```
+
+## Loading Large CSVs Safely
+```python
+import t_indicators as ti
+
+meta = ti.inspect_csv("data.csv", has_header=True)
+print(meta["file_size_mb"], meta["total_rows"], meta["columns"])
+
+# For small files, this loads everything. For files above `auto_limit_mb`,
+# it automatically caps the read to `large_file_rows`.
+chunk = ti.load_csv(
+    "data.csv",
+    columns=["Open", "High", "Low", "Close"],
+    index_column="Date",
+    auto_limit_mb=128,
+    large_file_rows=50_000,
+)
+
+print(chunk["values"].shape)
+print(chunk["truncated"], chunk["next_row"])
+
+# Load the next window explicitly if needed.
+if chunk["truncated"]:
+    next_chunk = ti.load_csv(
+        "data.csv",
+        start_row=chunk["next_row"],
+        max_rows=50_000,
+        columns=["Open", "High", "Low", "Close"],
+        index_column="Date",
+    )
 ```
 
 ---

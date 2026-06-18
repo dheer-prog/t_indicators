@@ -6,7 +6,7 @@
 #include<limits>  
 #include<algorithm>
 #include<iostream>
-#include "probability.h"
+#include "include/probability.h"
 float probabilities::std_dev(const std::vector<float>& data) {
     int n = data.size();
     if (n <= 1) return 0.0;
