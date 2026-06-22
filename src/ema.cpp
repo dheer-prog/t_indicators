@@ -164,6 +164,6 @@ py::object ema_dataframe(py::object data_frame, int window) {
 }
 
 void register_ema(py::module_& m) {
-    m.def("ema_series", &ema_series, py::arg("series"), py::arg("window"));
-    m.def("ema", &ema_dataframe, py::arg("dataframe"), py::arg("window"));
+    m.def("ema", &ema_series, py::arg("series"), py::arg("window"));
+    m.def("ema_dataframe", &ema_dataframe, py::arg("dataframe"), py::arg("window"));
 }

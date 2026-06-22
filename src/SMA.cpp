@@ -182,6 +182,6 @@ py::object rolling_sma_dataframe(py::object data_frame, int window) {
 }
 
 void register_rolling(py::module_& m) {
-    m.def("rolling_sma_series", &rolling_sma_series, "Compute rolling SMA of a series");
-    m.def("rolling_sma_dataframe", &rolling_sma_dataframe, "Compute rolling SMA of the entire dataframe");
+    m.def("sma", &rolling_sma_series, "Compute rolling SMA of a series");
+    m.def("sma_dataframe", &rolling_sma_dataframe, "Compute rolling SMA of the entire dataframe");
 }

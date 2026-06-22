@@ -7,7 +7,7 @@ if os.name == 'nt':
     link_args = []
 else:
     compile_args = ['-std=c++17', '-O3', '-DNDEBUG', '-march=native', '-flto']
-    link_args = ['-flto']
+    link_args = ['-flto','-pthread']
 
 ext_modules = [
     Extension(
@@ -33,5 +33,6 @@ Things which are completed and don't touch
 SMA 
 EMA
 RSI
+WILLIAMS_R
 """
 #python setup.py build_ext --inplace (how to build)

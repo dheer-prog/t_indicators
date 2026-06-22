@@ -177,8 +177,8 @@ py::object rsi_dataframe(py::object data_frame, int window) {
 }
 void register_rsi(py::module_ &m)
 {
-    m.def("RSI", &rsi_series,"Computing RSI of series ");
-    m.def("RSI_DataFrame",&rsi_dataframe,"Calculate RSI of entire dataframe");
+    m.def("ris", &rsi_series,"Computing RSI of series ");
+    m.def("rsi_dataframe",&rsi_dataframe,"Calculate RSI of entire dataframe");
 
 }
 

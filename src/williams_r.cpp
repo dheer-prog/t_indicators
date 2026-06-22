@@ -247,5 +247,5 @@ py::object williams_r_dataframe(py::object data_high, py::object data_low, py::o
 void register_williams_r(py::module_& m)
 {
     m.def("williams_r", &williams_r_series, "Computing Williams %R of series");
-    m.def("williams_r_DataFrame", &williams_r_dataframe, "Calculate Williams %R of entire dataframe");
+    m.def("williams_r_dataframe", &williams_r_dataframe, "Calculate Williams %R of entire dataframe");
 }
