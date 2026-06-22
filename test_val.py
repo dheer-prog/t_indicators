@@ -13,9 +13,12 @@ import yfinance as yf
 
 DEFAULT_DATA_PATH = Path("data.csv")
 DEFAULT_WINDOW = 14
+DEFAULT_MACD_SLOW = 26
+DEFAULT_MACD_FAST = 12
+DEFAULT_MACD_SIGNAL = 9
 DEFAULT_ATOL = 1e-4
 DEFAULT_RTOL = 1e-5
-INDICATOR_TO_COMPARE = "williams_r"
+INDICATOR_TO_COMPARE = "macd"
 WILLIAMS_DATA_PATH = DEFAULT_DATA_PATH
 
 
@@ -98,6 +101,21 @@ def pandas_ta_ema(data: pd.DataFrame, window: int) -> pd.DataFrame:
 
 def my_ema(data: pd.DataFrame, window: int) -> pd.DataFrame:
     return t.ema(data, window)
+
+
+def pandas_ta_macd(data: pd.DataFrame, slow: int, fast: int, signal: int) -> pd.DataFrame:
+    result = {}
+    macd_column = f"MACD_{fast}_{slow}_{signal}"
+    for column in data.columns:
+        macd_frame = ta.macd(data[column], fast=fast, slow=slow, signal=signal)
+        if macd_frame is None or macd_column not in macd_frame:
+            raise RuntimeError(f"pandas_ta.macd did not return {macd_column} for column {column}.")
+        result[column] = macd_frame[macd_column]
+    return pd.DataFrame(result, index=data.index)
+
+
+def my_macd(data: pd.DataFrame, slow: int, fast: int) -> pd.DataFrame:
+    return t.macd_dataframe(data, slow, fast)
 
 
 def pandas_rsi_series(series: pd.Series, window: int) -> pd.Series:
@@ -187,6 +205,10 @@ INDICATORS = {
         "pandas_ta": pandas_ta_williams,
         "framework": my_williams,
     },
+    "macd": {
+        "pandas_ta": None,
+        "framework": None,
+    },
 }
 
 
@@ -254,15 +276,37 @@ def compare_frames(
     )
 
 
-def run_indicator(name: str, data: pd.DataFrame, window: int, atol: float, rtol: float) -> None:
-    print(f"\n{name.upper()} (window={window})")
+def run_indicator(
+    name: str,
+    data: pd.DataFrame,
+    window: int,
+    macd_slow: int,
+    macd_fast: int,
+    macd_signal: int,
+    atol: float,
+    rtol: float,
+) -> None:
+    if name == "macd":
+        print(f"\nMACD (slow={macd_slow}, fast={macd_fast}, signal={macd_signal})")
+    else:
+        print(f"\n{name.upper()} (window={window})")
     if name == "ema":
         print("  Note: pandas ewm uses a different EMA seed than pandas_ta and the framework.")
     if name == "williams_r":
         print("  Note: Williams %R downloads OHLC data from yfinance and compares high/low/close inputs.")
+    if name == "macd":
+        print("  Note: comparing the MACD line only, using framework macd = ema(fast) - ema(slow).")
 
     outputs: dict[str, pd.DataFrame] = {}
-    for source_name, fn in INDICATORS[name].items():
+    if name == "macd":
+        indicator_fns = {
+            "pandas_ta": lambda frame, _: pandas_ta_macd(frame, macd_slow, macd_fast, macd_signal),
+            "framework": lambda frame, _: my_macd(frame, macd_slow, macd_fast),
+        }
+    else:
+        indicator_fns = INDICATORS[name]
+
+    for source_name, fn in indicator_fns.items():
         try:
             outputs[source_name] = fn(data, window)
         except Exception as exc:
@@ -296,6 +340,24 @@ def parse_args() -> argparse.Namespace:
         help="Indicator window length.",
     )
     parser.add_argument(
+        "--macd-slow",
+        type=int,
+        default=DEFAULT_MACD_SLOW,
+        help="Slow MACD EMA window. Passed as window1 to the framework MACD.",
+    )
+    parser.add_argument(
+        "--macd-fast",
+        type=int,
+        default=DEFAULT_MACD_FAST,
+        help="Fast MACD EMA window. Passed as window2 to the framework MACD.",
+    )
+    parser.add_argument(
+        "--macd-signal",
+        type=int,
+        default=DEFAULT_MACD_SIGNAL,
+        help="Signal window used only for pandas_ta MACD column naming.",
+    )
+    parser.add_argument(
         "--atol",
         type=float,
         default=DEFAULT_ATOL,
@@ -325,13 +387,23 @@ def main() -> None:
 
     print(
         f"Loaded {len(data)} rows x {len(data.columns)} columns from {args.data} "
-        f"(window={args.window}, atol={args.atol}, rtol={args.rtol})"
+        f"(window={args.window}, macd_slow={args.macd_slow}, macd_fast={args.macd_fast}, "
+        f"macd_signal={args.macd_signal}, atol={args.atol}, rtol={args.rtol})"
     )
 
     indicators = args.indicators if args.indicators is not None else selected_indicators()
 
     for name in indicators:
-        run_indicator(name, data, args.window, args.atol, args.rtol)
+        run_indicator(
+            name,
+            data,
+            args.window,
+            args.macd_slow,
+            args.macd_fast,
+            args.macd_signal,
+            args.atol,
+            args.rtol,
+        )
 
 
 if __name__ == "__main__":

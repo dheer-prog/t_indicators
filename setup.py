@@ -12,7 +12,7 @@ else:
 ext_modules = [
     Extension(
         't_indicators',
-        ['src/binding.cpp', 'src/SMA.cpp', 'src/RSI.cpp', 'src/williams_r.cpp', 'src/trend.cpp', 'src/volatility.cpp', 'src/probability.cpp', 'src/ema.cpp', 'src/csv_loader.cpp'],
+        ['src/binding.cpp', 'src/SMA.cpp', 'src/RSI.cpp', 'src/williams_r.cpp', 'src/trend.cpp', 'src/volatility.cpp', 'src/probability.cpp', 'src/ema.cpp', 'src/macd.cpp', 'src/csv_loader.cpp'],
         include_dirs=[pybind11.get_include()],
         language='c++',
         extra_compile_args=compile_args,

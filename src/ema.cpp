@@ -5,8 +5,8 @@
 #include <stdexcept>
 #include <thread>
 #include <vector>
-#include<iostream>
 #include "include/helper.h"
+#include "include/ema.h"
 
 namespace py = pybind11;
 
@@ -59,7 +59,6 @@ void compute_ema_matrix_by_column(const MatrixView& input, size_t window, float*
     }
 
     const unsigned int hw = std::max(1u, std::thread::hardware_concurrency());
-    std::cout<<hw;
     const size_t num_threads = (col_count >= 32) ? std::min<size_t>(hw, col_count) : 1;
     const size_t chunk = (col_count + num_threads - 1) / num_threads;
 
